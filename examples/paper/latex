@@ -1,0 +1,23 @@
+\begin{tabular}{lllr}
+\toprule
+ &  &  & time \\
+experiment_name & impl & volume_size &  \\
+\midrule
+\multirow[t]{6}{*}{backward_projection} & \multirow[t]{3}{*}{numpy} & 256 & 0.107948 \\
+ &  & 512 & 0.648306 \\
+ &  & 1024 & 4.399417 \\
+\cline{2-4}
+ & \multirow[t]{3}{*}{pytorch} & 256 & 0.089108 \\
+ &  & 512 & 0.283099 \\
+ &  & 1024 & 1.852591 \\
+\cline{1-4} \cline{2-4}
+\multirow[t]{6}{*}{forward_projection} & \multirow[t]{3}{*}{numpy} & 256 & 0.391273 \\
+ &  & 512 & 0.912311 \\
+ &  & 1024 & 6.186663 \\
+\cline{2-4}
+ & \multirow[t]{3}{*}{pytorch} & 256 & 0.187383 \\
+ &  & 512 & 0.400273 \\
+ &  & 1024 & 2.711217 \\
+\cline{1-4} \cline{2-4}
+\bottomrule
+\end{tabular}
