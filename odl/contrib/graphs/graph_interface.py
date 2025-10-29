@@ -12,7 +12,7 @@ def _initialize_if_needed():
     if not INITIALIZE:
         pygeom_module = importlib.util.find_spec("torch_geometric")
         if pygeom_module is not None:
-            from backends.pygeom import exporter
+            from odl.contrib.graphs.backends.pygeom import exporter
 
             _exporters["torch_geometric"] = exporter
         INITIALIZE = True
