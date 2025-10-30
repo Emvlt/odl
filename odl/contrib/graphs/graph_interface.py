@@ -15,6 +15,13 @@ def _initialize_if_needed():
             from odl.contrib.graphs.backends.pygeom import exporter
 
             _exporters["torch_geometric"] = exporter
+
+        networkx_module = importlib.util.find_spec("networkx")
+        if networkx_module is not None:
+            from odl.contrib.graphs.backends.networkx import exporter
+
+            _exporters["networkx"] = exporter
+
         INITIALIZE = True
 
 
