@@ -10,8 +10,9 @@ import math
 import odl
 from odl.core.operator import Operator
 from odl.core.discr import DiscretizedSpace
-from odl.trafos import FourierTransform
+from odl.trafos import FourierTransform, DiscreteFourierTransform
 from odl.core.phantom import shepp_logan
+from odl.applications.cryoem.units import ENERGY_SCALE, LENGTH_SCALE
 
 class CTF(nn.Module):
     def __init__(
@@ -117,13 +118,24 @@ class CTFOperator(Operator):
         )
 
         self.namespace = space.array_namespace
-        self.fourier  = FourierTransform(domain=space)
 
+        # Axel: Using the discrete fourier transform here may be incorrect, at least supported by ODL.
+        # Quick fix setting halfcomplex to false, an alternative is to slice the kernel.
+        # self.fourier = FourierTransform(domain=space, halfcomplex=False)
+        self.fourier = DiscreteFourierTransform(domain=space, halfcomplex=False)
+        
         # Doing the super init here to access space attribute in _create_kernel
         # Note that the range is the real_space of the input space, otherwise the output is always wrapped inside a complex space
-        super(CTFOperator, self).__init__(domain=space, range=space.real_space)
+        # super(CTFOperator, self).__init__(domain=space, range=space.real_space)
 
-        self.kernel   = self._create_kernel()
+        # Axel: Changed field of domain to real to avoid the real_space issue.
+        super(CTFOperator, self).__init__(domain=space, range=space)
+
+
+        # Axel: Using the DFT, this now works as intended.
+        # self.kernel = self._create_kernel()
+        self.kernel = self.fourier.range.element(self._create_kernel())        
+        self.operator = self.fourier.inverse @ self.kernel @ self.fourier
 
         """
         Ideally, we would like to use 
@@ -135,10 +147,24 @@ class CTFOperator(Operator):
         self.operator = self.fourier.inverse @ self.kernel @ self.fourier
 
         But it turns out that the numerical results are inconsistent between ODL's FFT and PyTorch's :(
+
+        Axel: This is a significant issue, the problem is that the 
+        standard ODL FourierTransform rescales values where fft2/DFT does not. 
         """
+
     def _create_kernel(self):
-        # Q (EV) : Do you assume uniform volumes with same shape across all dimensions?
-        its = self.namespace.fft.fftfreq(self.domain.shape[0] + 2 * ctf_pad, d=self.domain.cell_volume)
+        # Q (EV) : Do you assume uniform volumes with same shape across all dimensions? 
+        # A: All single-particle images are square.
+
+        its = self.namespace.fft.fftfreq(
+            self.domain.shape[0], #+ 2 * ctf_pad, 
+            d=self.domain.cell_volume,
+        )
+
+        # Axel: An attempt to access the correct frequencies.
+        # _, its = self.fourier.range.meshgrid
+        # its *= 1/ (2 * np.pi)
+
         # Array API friendly unsqueeze
         normsqr = its[:, None] ** 2 + its[None, :] ** 2
         return self._compute_ctf(normsqr)
@@ -159,16 +185,21 @@ class CTFOperator(Operator):
         This is an adhoc fix with the namespace. Ideally, we would like to use 
         projs_ctf = self.operator(projs)
         But it turns out that the numerical results are inconsistent between ODL's FFT and PyTorch's :(
+
+        Axel: Made it work with ODL's DiscreteFourierTransform, just getting a casting error for complex-to-real.
+        The scaling of the regular FourierTransform is wrong for our CTF values.
         """
-        projs_fourier = self.namespace.fft.fft2(projs.asarray()) * self.kernel
-        projs_ctf = self.namespace.fft.ifft2(projs_fourier)
+        # projs_fourier = self.namespace.fft.fft2(projs.asarray()) * self.kernel
+        # projs_ctf = self.namespace.fft.ifft2(projs_fourier)
+        # if self.ctf_pad != 0:
+        #     return projs_ctf[
+        #         ..., self.ctf_pad : -self.ctf_pad, self.ctf_pad : -self.ctf_pad
+        #     ].real
+        # return projs_ctf.real
 
-        if self.ctf_pad != 0:
-            return projs_ctf[
-                ..., self.ctf_pad : -self.ctf_pad, self.ctf_pad : -self.ctf_pad
-            ].real
+        projs_ctf = self.operator(projs)
 
-        return projs_ctf.real
+        return projs_ctf
 
 
 if __name__ == "__main__":
@@ -191,11 +222,12 @@ if __name__ == "__main__":
         electron_energy,
     )
 
+    # Axel: Changed this to a real space as intended.
     reconstruction_space = odl.uniform_discr(
         min_pt=[-32, -32],
         max_pt=[32, 32],
         shape=[64, 64],
-        dtype="complex64",
+        dtype="float64",
         impl="pytorch",
         device="cpu",
     )
