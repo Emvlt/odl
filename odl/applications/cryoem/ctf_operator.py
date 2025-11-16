@@ -86,10 +86,7 @@ class CTF(nn.Module):
 
 
 class CTFOperator(Operator):
-    """_summary_
-
-    Args:
-        Operator (_type_): _description_
+    """Contrast transfer function (CTF) used to model microscope optics in Cryo-EM, as described in [TODO add reference]
     """
 
     def __init__(
@@ -105,6 +102,25 @@ class CTFOperator(Operator):
         spherical_aberration_scaling=1e7,
         electron_energy_scaling=1e3,
     ):
+        """Initalise a new instance.
+        
+        Parameters
+        ----------
+        space : `DiscretizedSpace`
+            Image space
+        ctf_pad : 'int'
+            Padding used in fft
+        spherical_aberration : 'float'
+            Spherical aberration
+        amplitude_contrast_ratio : 'float'
+            Amplitude contrast ratio
+        defocus : 'float'
+            Defocus
+        electron_energy : 'float'
+            Electron energy
+        """
+
+        # Q (JK) : Is the description of the 'space' parameter accurate?
         # TODO: Add checks on parameters boundaries
 
         # Extracting the CTF attributes
@@ -153,8 +169,17 @@ class CTFOperator(Operator):
         """
 
     def _create_kernel(self):
+        """2D array representing discretized CTF
+        
+        Returns
+        -------
+        ctf_array : 'torch.tensor'
+            Array of CTF values.
+        """
         # Q (EV) : Do you assume uniform volumes with same shape across all dimensions? 
         # A: All single-particle images are square.
+
+        # Q (JK) : What types of array supported?
 
         its = self.namespace.fft.fftfreq(
             self.domain.shape[0], #+ 2 * ctf_pad, 
@@ -167,17 +192,43 @@ class CTFOperator(Operator):
 
         # Array API friendly unsqueeze
         normsqr = its[:, None] ** 2 + its[None, :] ** 2
-        return self._compute_ctf(normsqr)
+        ctf_array = self._compute_ctf(normsqr)
+        return ctf_array
 
     def _compute_ctf(self, norm_square):
+        """Value of CTF at point with specified squared norm.
+        
+        Parameters
+        ----------
+        norm_square : 'float'
+            Squared norm of the point where the CTF is evaluated.
+
+        Returns
+        -------
+        val : 'float'
+            Value of CTF at point.
+        """
         term = 0.25 * self.SA * (self.wavelength**3) * (norm_square**2)
         angle = (0.5 * self.defocus * self.wavelength * norm_square - term) * 2 * np.pi
-        return -1.0 * (
+        val = -1.0 * (
             math.sqrt(1.0 - self.ACR**2) * self.namespace.sin(angle)
             + self.ACR * self.namespace.cos(angle)
         )
+        return val
 
     def _call(self, projs):
+        """Applies CTF to images.
+        
+        Parameters
+        ----------
+        projs : 'torch.tensor'
+            Projection images.
+
+        Returns
+        -------
+        projs_ctf : 'torch.tensor'
+            Projection images after applying CTF.
+        """
         if self.ctf_pad !=0:
             projs = F.pad(projs, [self.ctf_pad] * 4)
 
