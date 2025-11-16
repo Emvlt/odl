@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from torchtyping import TensorType
 import math
+import units
 
 # OPTIMISE BY PROJECTING OUT THE Z AXIS AT THE START
 
@@ -93,14 +94,12 @@ class CTFOperator(Operator):
         self,
         space: DiscretizedSpace,
         ctf_pad: int,
-        spherical_aberration: float,
-        amplitude_contrast_ratio: float,
-        defocus: float,
-        electron_energy: float,
+        spherical_aberration: dict,
+        amplitude_contrast_ratio: dict,
+        defocus: dict,
+        electron_energy: dict,
         # TODO: There must be a more generic way to describe the change of units, provide a dictionnary mapping str unit to float scaling
         # TODO: Add Documentation to class
-        spherical_aberration_scaling=1e7,
-        electron_energy_scaling=1e3,
     ):
         """Initalise a new instance.
         
@@ -109,28 +108,30 @@ class CTFOperator(Operator):
         space : `DiscretizedSpace`
             Image space
         ctf_pad : 'int'
-            Padding used in fft
+            Padding used in fft.
         spherical_aberration : 'float'
-            Spherical aberration
+            Third order spherical aberration.
         amplitude_contrast_ratio : 'float'
-            Amplitude contrast ratio
+            Amplitude contrast ratio.
         defocus : 'float'
-            Defocus
+            Negative defocus.
         electron_energy : 'float'
-            Electron energy
+            Electron energy.
         """
 
         # Q (JK) : Is the description of the 'space' parameter accurate?
         # TODO: Add checks on parameters boundaries
-
+        spherical_aberration_scaling=1e7,
+        electron_energy_scaling=1e3,
         # Extracting the CTF attributes
         self.ctf_pad = ctf_pad
-        self.SA = spherical_aberration * spherical_aberration_scaling
+        self.SA = spherical_aberration['value'] * units.LENGTH_SCALE[spherical_aberration['unit']] * 1e3 * spherical_aberration_scaling
         self.ACR = amplitude_contrast_ratio
-        self.defocus = defocus
+        self.defocus = defocus['value'] * units.LENGTH_SCALE[defocus['unit']] * 1e10
+        self.electron_energy = electron_energy['value'] * units.ENERGY_SCALE[electron_energy['unit']] * 1e-3 * electron_energy_scaling
         self.wavelength = 12.2639 / np.sqrt(
-            (electron_energy * electron_energy_scaling)
-            + 0.97845e-6 * (electron_energy * electron_energy_scaling) ** 2
+            (electron_energy)
+            + 0.97845e-6 * (electron_energy) ** 2
         )
 
         self.namespace = space.array_namespace
