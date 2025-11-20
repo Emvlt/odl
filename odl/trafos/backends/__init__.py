@@ -12,7 +12,9 @@ from __future__ import absolute_import
 
 from .pyfftw_bindings import *
 from .pywt_bindings import *
+from .pykeops_bindings import *
 
 __all__ = ()
 __all__ += pyfftw_bindings.__all__
 __all__ += pywt_bindings.__all__
+__all__ += pykeops_bindings.__all__

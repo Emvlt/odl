@@ -2,9 +2,14 @@ import numpy as np
 import torch
 from torch.nn.functional import grid_sample
 from scipy.ndimage import map_coordinates
-from pykeops.torch import LazyTensor
 import matplotlib.pyplot as plt
 
+import odl
+from odl.trafos.backends.pykeops_bindings import (
+    PYKEOPS_AVAILABLE, LAZY_TENSOR_IMPLS)
+from odl.core.discr import DiscretizedSpace
+from odl.core.array_API_support.utils import lookup_array_backend
+from odl.trafos.deform import LinDeformFixedTempl
 # The idea would be to design a non linear deformation operator that has a fixed template I0
 
 # then we should develop an ODE solver operator such that given a velocity field v, we could
@@ -81,76 +86,106 @@ def dataloss(I0, I1, impl):
         return xp.sum(xp.abs(warped - I1)**2)
     return __dataloss
 
-def regloss(grid, sigma=0.1, impl='pykeops'):
+def regloss(grid, sigma=0.1, impl = 'numpy', backend='default'):
     """
     Regularization term. sum_0<=t<=1  v(., t)^T K(., .) v(., t)dt
 
-    Kernel could be a users choice in principle but for the moment -
-    - keeping it simple with the gaussian kernel which is the most common -
-    - in the literature. The idea is that the kernel quadratic form should -
+    Kernel could be a users choice in principle but for the moment 
+    - keeping it simple with the gaussian kernel which is the most common 
+    - in the literature. The idea is that the kernel quadratic form should 
     - be on a sparse or downsampled grid for eficiency purposes.
 
     grid: downsample sparse grid, shape H' x W' x 2
     sigma: gaussian variance parameter
-    impl: Kernel structure
+    backend: Kernel structure
 
     """
-    if impl=='pykeops':
-        def __regloss(v_t):
-            n_steps = v_t.shape[0]
-            coords = grid.view(-1, 2) # (H'*W', 2)
-            x_i = LazyTensor(coords[:, None, :]) 
-            x_j = LazyTensor(coords[None, :, :]) 
-            sqdist = ((x_i - x_j) ** 2).sum(-1)
-            Kij = (- sqdist / (2 * sigma**2)).exp()  
-            total = torch.tensor(0.0, device=v_t.device)
-            for t in range(n_steps):
-                v_j = LazyTensor(v_t[t].view(-1, 2)[None, :, :]) 
-                K_v = (Kij * v_j).sum(dim=1)            
-                K_v = K_v.view(-1, 2)         
-                total += torch.sum((K_v ** 2).sum(dim=1))   
-            return total / n_steps
+    impl = grid.impl
+    device = grid.device
+    dtype = grid.dtype_identifier
+
+    if backend=='pykeops':
+        assert PYKEOPS_AVAILABLE, 'The requested backend in pykeops, but the pykeops library is not installed'
+        array_constructor = LAZY_TENSOR_IMPLS[impl]
+
+    elif backend == 'default':
+        array_constructor = lookup_array_backend[impl].array_constructor
+
+    else:
+        raise ValueError(f'Got backend argument {backend} which is not supported.')
+    def __regloss(v_t):
+        n_steps = v_t.shape[0]
+        coords = grid.view(-1, 2) # (H'*W', 2)
+        x_i = array_constructor(coords[:, None, :], device=device, dtype=dtype) 
+        x_j = array_constructor(coords[None, :, :], device=device, dtype=dtype) 
+        sqdist = ((x_i - x_j) ** 2).sum(-1)
+        Kij = (- sqdist / (2 * sigma**2)).exp()  
+        total = torch.tensor(0.0, device=v_t.device)
+        for t in range(n_steps):
+            v_j = array_constructor(v_t[t].view(-1, 2)[None, :, :], device=device, dtype=dtype) 
+            K_v = (Kij * v_j).sum(dim=1)            
+            K_v = K_v.view(-1, 2)         
+            total += torch.sum((K_v ** 2).sum(dim=1))   
+        return total / n_steps
     return __regloss
 
 
+def compute_template_and_displacement(space : DiscretizedSpace, epsilon=0.15):
+    # we put the template and phi's initial computation in the same function as they both use Y,X arguments
+    meshgrid = [
+        g.ravel() for g in space.grid.meshgrid
+        ]
 
-def main():
+    Y, X = np.meshgrid(*meshgrid, indexing='ij')
+    # stacking on dimension 0 to make it array-API friendly;
+    # the numpy and pytorch APIs have different keywords for dimension/axis but both default to 0
+    grid = np.stack((Y, X))
+    I0 = np.where(
+        grid[0]**2/0.65 + grid[1]**2/0.8 <=1, 1.0, 0.0
+    )
+
+    # what are these variables for and why are they set in this way?
+    phi_x = X + epsilon * np.sin(torch.pi * Y)
+    phi_y = Y + epsilon * np.sin(torch.pi * X)
+    phi = np.stack((phi_y, phi_x))
+    return space.element(I0), space.tangent_bundle.element(phi)
+
+if __name__ == '__main__':
     H, W = 64, 64
-    x = torch.linspace(-1, 1, H)
-    y = torch.linspace(-1, 1, W)
-    Y, X = torch.meshgrid(y, x, indexing='ij')  
-    grid = torch.stack((Y, X), dim=-1)
+    impl = 'pytorch'
+    device= 'cpu'
 
-
-    I0 = torch.where(grid[:, :, 0]**2/0.65 + grid[:, :, 1]**2/0.8 <=1, 1.0, 0.0)
-
-
-
-    epsilon = 0.15
-
-    phi_x = X + epsilon * torch.sin(torch.pi * Y)
-    phi_y = Y + epsilon * torch.sin(torch.pi * X)
-    phi = torch.stack((phi_y, phi_x), dim=-1)
-
+    ## We begin by creating the input space
+    space = odl.uniform_discr(
+        [-1,-1],[1,1],[H, W], impl=impl, device=device
+        )
     
-
-
-    deformed = deformation(I0, phi,
-                        impl='pytorch',
-                        interp='linear',
-                        boundary='zeros')
-
+    template, displacement = compute_template_and_displacement(space)
     
+    deformation_operator = LinDeformFixedTempl(
+        template,
+        space.tangent_bundle, 
+        interp = 'linear'
+    ) 
 
+    deformed = deformation_operator(displacement)
 
-    plt.figure(figsize=(10,4))
-    plt.subplot(1,3,1); plt.title("Original ellipse"); plt.imshow(I0, cmap='gray'); plt.axis('off')
-    plt.subplot(1,3,2); plt.title("phi_x, phi_y"); plt.quiver(X[::8,::8], Y[::8,::8],
-                                                            (phi_x-X)[::8,::8],
-                                                            (phi_y-Y)[::8,::8])
-    plt.axis('equal'); plt.axis('off')
-    plt.subplot(1,3,3); plt.title("Deformed"); plt.imshow(deformed.detach(), cmap='gray'); plt.axis('off')
-    plt.tight_layout()
-    plt.show()
+    plt.matshow(template.asarray())
+    plt.savefig(f'{impl}_template')
+    plt.clf()
+    plt.matshow(deformed.asarray())
+    plt.savefig(f'{impl}_deformed')
+
+    # does not work as is
+    # plt.figure(figsize=(10,4))
+    # plt.subplot(1,3,1); plt.title("Original ellipse"); plt.imshow(template.asarray(), cmap='gray'); plt.axis('off')
+    # plt.subplot(1,3,2); plt.title("phi_x, phi_y"); plt.quiver(X[::8,::8], Y[::8,::8],
+    #                                                         (phi_x-X)[::8,::8],
+    #                                                         (phi_y-Y)[::8,::8])
+    # plt.axis('equal'); plt.axis('off')
+    # plt.subplot(1,3,3); plt.title("Deformed"); plt.imshow(deformed.detach(), cmap='gray'); plt.axis('off')
+    # plt.tight_layout()
+    # plt.savefig('test')
+    # plt.clf()
 
     
