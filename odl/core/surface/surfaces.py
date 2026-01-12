@@ -5,7 +5,7 @@ from typing import Optional
 
 import numpy as np
 
-from coordinate_systems import (CoordinateSystem, CoordinateSystemRegistry, CartesianSystem, SphericalSystem, CylindricalSystem)
+from odl.core.surface.coordinate_systems import (CoordinateSystem, CoordinateSystemRegistry, CartesianSystem, SphericalSystem, CylindricalSystem)
 
 class Surface(ABC):
     """Base class for surfaces with intrinsic coordinate system"""
