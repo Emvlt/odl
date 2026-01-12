@@ -15,9 +15,10 @@ def exporter(geometry: Geometry, scheme: str) -> Data:
     Returns:
         Data: PyGeom Data object
     """
-    num_nodes = compute_graph_attribute("node_number", geometry, scheme)
-    edges = compute_graph_attribute("edges", geometry, scheme)
-    weights = compute_graph_attribute("weights", geometry, scheme)
+    points = compute_graph_attribute("points", geometry, scheme)
+    num_nodes = compute_graph_attribute("node_number", points, scheme)
+    edges = compute_graph_attribute("edges", points, scheme)
+    weights = compute_graph_attribute("weights", points, scheme)
 
     edges = torch.tensor(edges, dtype=torch.long).t().contiguous()
     weights = torch.tensor(weights, dtype=torch.float)

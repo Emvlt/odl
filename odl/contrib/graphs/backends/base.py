@@ -2,12 +2,15 @@
 # It is made to be able to export to PyGeom or maybe NetworkX
 from functools import wraps
 from typing import Any, Callable
+import math
 
 import numpy as np
 
 from odl.applications.tomo import Geometry
+from odl.core.surface.surfaces import Circle, PointCloud
+from odl.core.surface.coordinate_systems import CartesianSystem 
 
-_calculators = {"node_number": {}, "edges": {}, "weights": {}}
+_calculators = {"points": {}, "node_number": {}, "edges": {}, "weights": {}}
 
 def register_calculator(calculator_type: str, geometry_name: str, scheme: str):
     """Decorator to register a calculator (object that calculates graph attributes from a geometry)
@@ -27,40 +30,67 @@ def register_calculator(calculator_type: str, geometry_name: str, scheme: str):
 
     return decorator
 
+def gaussian_kernel(distance:float, sigma=1.0):
+    return math.exp(-distance**2/sigma)
 
-@register_calculator("node_number", "FanBeamGeometry", "GLM")
-def node_number_GLM_FanBeam(geometry: Geometry):
-    return len(geometry.angles)
+@register_calculator("points", "FanBeamGeometry", "GLM")
+def points_GLM_FanBeam(geometry:Geometry) -> PointCloud:
+    # Extract source positions, origin and axis from the geometry object
+    source_positions : np.ndarray= geometry.src_position(geometry.angles)
+    source_positions = np.column_stack((source_positions, np.full(len(source_positions), 0)))
+
+    origin = np.array(list(geometry.translation) + [0])
+    axis   = np.array([0,0,1])
+    
+    # Extract the Circle surface from the geometry and create the cartesian system in which points initially live
+    circle = Circle(
+            base_center=origin,
+            axis = axis,
+            radius=geometry.src_radius,
+            name="circle"
+        )
+    cart_system = CartesianSystem(origin)
+
+    # Attach the PointCloud to the surface and express the points in the right coordinate system
+    points = PointCloud(source_positions, system=cart_system, surface=circle)    
+    points = points.to_system(circle.coord_system)
+    assert all([circle.contains_point(p) for p in points])
+
+    return points
 
 
-@register_calculator("edges", "FanBeamGeometry", "GLM")
-def edges_GLM_FanBeam(geometry: Geometry):
-    angles = np.sort(geometry.angles)
+@register_calculator("node_number", "PointCloud", "GLM")
+def node_number_GLM_FanBeam(points: PointCloud):
+    return len(points)
+
+
+@register_calculator("edges", "PointCloud", "GLM")
+def edges_GLM_FanBeam(points: PointCloud):
+    # For the FanBeam 2D geometry, we connect successive measurements 
     edges = []
-    n_angles = len(angles)
-    for i in range(n_angles):
-        edges += [[i, (i + 1) % n_angles], [(i + 1) % n_angles, i]]
-    assert len(edges) == 2 * n_angles
+    n_source_positions = len(points)
+    for i in range(n_source_positions):
+        edges += [[i, (i + 1) % n_source_positions], [(i + 1) % n_source_positions, i]]
+    assert len(edges) == 2 * n_source_positions
     return edges
 
 
-@register_calculator("weights", "FanBeamGeometry", "GLM")
-def weights_GLM_FanBeam(geometry: Geometry):
-    angles = np.sort(geometry.angles)
-    angular_differences = np.ediff1d(angles, to_begin=angles[-1] - angles[0])
-    cosines = np.cos(angular_differences)
-    weights = np.column_stack((cosines, cosines)).ravel()
+@register_calculator("weights", "PointCloud", "GLM")
+def weights_GLM_FanBeam(points: PointCloud, sigma=1.0):
+    distances = [points[i].distance_to(points[(i+1)%len(points)], mode='surface') for i in range(len(points))]
+    weights = [gaussian_kernel(distance, sigma) for distance in distances]
+    weights = np.column_stack((weights, weights)).ravel()
     return weights
 
 
 def compute_graph_attribute(
-    graph_attribute_name: str, geometry: Geometry, scheme: str
+    graph_attribute_name: str, object, scheme: str
 ) -> np.ndarray | int:
     """Computes a certain graph attribute
 
     Args:
         graph_attribute_name (str): Name of the graph attribute to compute (node_number, edges, weights)
-        geometry (Geometry): name of the geometry, derived from geometry.__class__.__name__
+        object: object to process
         scheme (str): scheme used to compute the graph attributes
 
     Raises:
@@ -70,15 +100,15 @@ def compute_graph_attribute(
     Returns:
         (np.ndarray | int)
     """
-    geometry_name = geometry.__class__.__name__
+    object_name = object.__class__.__name__
     calculator_type = _calculators.get(graph_attribute_name)
     if calculator_type is None:
         raise NotImplementedError(
             f"❌ The graph attribute {graph_attribute_name} has no associated way to compute its values"
         )
-    calculator = calculator_type.get((geometry_name, scheme))
+    calculator = calculator_type.get((object_name, scheme))
     if calculator is None:
         raise NotImplementedError(
-            f"❌ The calculation of the {graph_attribute_name} for the geometry {geometry_name} and scheme {scheme} is not Implemented"
+            f"❌ The calculation of the {graph_attribute_name} for the object {object_name} and scheme {scheme} is not Implemented"
         )
-    return calculator(geometry)
+    return calculator(object)
