@@ -1,6 +1,7 @@
 """ 2Detect dataset binders for ODL (see https://www.nature.com/articles/s41597-023-02484-6)"""
 
 from pathlib import Path
+from typing import List 
 
 import numpy as np
 import imageio.v2 as imageio
@@ -26,7 +27,7 @@ def detect_volume(n_voxels : int, impl:str, device:str):
         device = device
     )
 
-def detect_geometry(n_voxels : int):
+def detect_geometry(n_voxels : int, angles_indices : List =None):
     """Create the geometry"""
     det_width = PIXEL_SIZE * N_PIXELS_DET
     FOV_width = det_width * SOD/SDD
@@ -38,6 +39,8 @@ def detect_geometry(n_voxels : int):
     scaled_pixel_size = PIXEL_SIZE * scale_factor
 
     angle_partition = odl.uniform_partition(-1.5*np.pi, 0.5*np.pi , 3600)
+    if angles_indices is not None:
+        angle_partition = angle_partition[angles_indices]
     detector_partition = odl.uniform_partition(
         -scaled_pixel_size * N_PIXELS_DET / 2.0, 
         scaled_pixel_size * N_PIXELS_DET / 2.0, 
@@ -46,9 +49,11 @@ def detect_geometry(n_voxels : int):
     return odl.applications.tomo.FanBeamGeometry(
         angle_partition, detector_partition, src_radius=scaled_SOD, det_radius=scaled_SDD-scaled_SOD)
 
-def detect_ray_trafo(n_voxels = 1024, impl ='pytorch', device='cuda:0'):
+def detect_ray_trafo(n_voxels = 1024, impl ='pytorch', device='cuda:0', geometry = None):
+    if geometry is None:
+        geometry = detect_geometry(n_voxels)
     return odl.applications.tomo.RayTransform(
-        detect_volume(n_voxels, impl, device), detect_geometry(n_voxels)
+        detect_volume(n_voxels, impl, device), geometry
         )
 
 def correct_detector_shift(sinogram, slice_index):
