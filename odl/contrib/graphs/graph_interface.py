@@ -1,5 +1,5 @@
 import importlib.util
-from typing import Callable, Dict
+from typing import Any, Callable, Dict
 
 from odl.applications.tomo import Geometry
 
@@ -25,7 +25,17 @@ def _initialize_if_needed():
         INITIALIZE = True
 
 
-def create_graph_from_geometry(geometry: Geometry, scheme: str, backend: str):
+def create_graph_from_geometry(geometry: Geometry, scheme: str, backend: str, **kwargs: Any):
+    """Creates a graph from an ODL geometry
+
+    Args:
+        geometry (Geometry): ODL geometry object
+        scheme (str): scheme used to compute the graph attributes
+        backend (str): name of the registered backend to export to (eg. torch_geometric, networkx)
+        **kwargs: extra keyword arguments forwarded to the backend exporter, used to pass arguments
+            to the graph attribute calculators (eg. edges_kwargs={"connectivity": 2},
+            weights_kwargs={"sigma": 2.0, "kernel_type": "inverse"})
+    """
 
     _initialize_if_needed()
     # Gemetry sanity check
@@ -42,4 +52,4 @@ def create_graph_from_geometry(geometry: Geometry, scheme: str, backend: str):
         raise ValueError(
             f"❌ No exporter found for backend {backend}. Only {list(_exporters.keys())} are registered backends."
         )
-    return exporter(geometry, scheme)
+    return exporter(geometry, scheme, **kwargs)

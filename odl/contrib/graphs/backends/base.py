@@ -90,7 +90,7 @@ def weights_GLM_FanBeam(points: PointCloud, sigma=1.0, kernel_type:str = "gaussi
 
 
 def compute_graph_attribute(
-    graph_attribute_name: str, object, scheme: str
+    graph_attribute_name: str, object, scheme: str, *args: Any, **kwargs: Any
 ) -> np.ndarray | int:
     """Computes a certain graph attribute
 
@@ -98,6 +98,8 @@ def compute_graph_attribute(
         graph_attribute_name (str): Name of the graph attribute to compute (node_number, edges, weights)
         object: object to process
         scheme (str): scheme used to compute the graph attributes
+        *args: extra positional arguments forwarded to the registered calculator
+        **kwargs: extra keyword arguments forwarded to the registered calculator (eg. sigma, kernel_type, connectivity)
 
     Raises:
         NotImplementedError: If the chosen graph attribute is not implemented (eg, if it is not in [node_number, edges, weights]) an error will be raised
@@ -117,4 +119,4 @@ def compute_graph_attribute(
         raise NotImplementedError(
             f"❌ The calculation of the {graph_attribute_name} for the object {object_name} and scheme {scheme} is not Implemented"
         )
-    return calculator(object)
+    return calculator(object, *args, **kwargs)
