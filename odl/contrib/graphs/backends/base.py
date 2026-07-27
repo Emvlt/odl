@@ -65,20 +65,26 @@ def node_number_GLM_FanBeam(points: PointCloud):
 
 
 @register_calculator("edges", "PointCloud", "GLM")
-def edges_GLM_FanBeam(points: PointCloud):
+def edges_GLM_FanBeam(points: PointCloud, connectivity:int = 1):
     # For the FanBeam 2D geometry, we connect successive measurements 
     edges = []
     n_source_positions = len(points)
     for i in range(n_source_positions):
-        edges += [[i, (i + 1) % n_source_positions], [(i + 1) % n_source_positions, i]]
-    assert len(edges) == 2 * n_source_positions
+        for j in range(1, connectivity + 1):
+            edges += [[i, (i + j) % n_source_positions], [(i + j) % n_source_positions, i]]
+    assert len(edges) == 2 * n_source_positions * connectivity
     return edges
 
 
 @register_calculator("weights", "PointCloud", "GLM")
-def weights_GLM_FanBeam(points: PointCloud, sigma=1.0):
-    distances = [points[i].distance_to(points[(i+1)%len(points)], mode='surface') for i in range(len(points))]
-    weights = [gaussian_kernel(distance, sigma) for distance in distances]
+def weights_GLM_FanBeam(points: PointCloud, sigma=1.0, kernel_type:str = "gaussian", distance_mode:str = "surface"):
+    distances = [points[i].distance_to(points[(i+1)%len(points)], mode=distance_mode) for i in range(len(points))]
+    if kernel_type == "gaussian":
+        weights = [gaussian_kernel(distance, sigma) for distance in distances]
+    elif kernel_type == "inverse":
+        weights = [1/distance for distance in distances]
+    else:
+        raise NotImplementedError(f"❌ The kernel type {kernel_type} is not implemented")
     weights = np.column_stack((weights, weights)).ravel()
     return weights
 
