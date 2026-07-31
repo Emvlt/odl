@@ -88,10 +88,10 @@ def weights_GLM_FanBeam(
     n_source_positions = len(points)
     for i in range(n_source_positions):
         for j in range(1, connectivity + 1):
-            distances += points[i].distance_to(
+            distances.append(points[i].distance_to(
                 points[(i+j)%n_source_positions], 
                 mode=distance_mode
-                )
+                ))
     if kernel_type == "gaussian":
         weights = [gaussian_kernel(distance, sigma) for distance in distances]
     elif kernel_type == "inverse":
