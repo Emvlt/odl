@@ -77,8 +77,21 @@ def edges_GLM_FanBeam(points: PointCloud, connectivity:int = 1):
 
 
 @register_calculator("weights", "PointCloud", "GLM")
-def weights_GLM_FanBeam(points: PointCloud, sigma=1.0, kernel_type:str = "gaussian", distance_mode:str = "surface"):
-    distances = [points[i].distance_to(points[(i+1)%len(points)], mode=distance_mode) for i in range(len(points))]
+def weights_GLM_FanBeam(
+        points: PointCloud, 
+        sigma=1.0, 
+        kernel_type:str = "gaussian", 
+        distance_mode:str = "surface",
+        connectivity:int = 1
+        ):
+    distances = []
+    n_source_positions = len(points)
+    for i in range(n_source_positions):
+        for j in range(1, connectivity + 1):
+            distances += points[i].distance_to(
+                points[(i+j)%n_source_positions], 
+                mode=distance_mode
+                )
     if kernel_type == "gaussian":
         weights = [gaussian_kernel(distance, sigma) for distance in distances]
     elif kernel_type == "inverse":
